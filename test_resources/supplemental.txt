@@ -1,0 +1,119 @@
+# Copyright (c) 2020 Intel Corporation. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sub license, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice (including the
+# next paragraph) shall be included in all copies or substantial portions
+# of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+# IN NO EVENT SHALL PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR
+# ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+
+# these are Python code snippets that were intentionally cut from the main source files for the decoder
+# use them as you will, at your own responsiblity/risk
+#
+#
+# (code starts below this line)
+
+ # work with the provided command line parameters
+    parser = argparse.ArgumentParser(description="uncompress Huffman table encoded binary data files")
+    parser.add_argument('--singlebin', action="store_true", required=False, help='treat input file as a raw, single '
+                                                                                 'Huffman encoded binary; this is '
+                                                                                 '*unlikely* to be what you want to do')
+    parser.add_argument('--huffmantable', metavar='FILE', type=str, nargs='?')
+    parser.add_argument('--lut', metavar='FILE', type=str, nargs='?', required=False,
+                        help='the Look-Up Table file; this file should contain binary entries describing locations '
+                             'and Huffman table selector for each '
+                             'code page in the input file; only needed with the --singlebin argument')
+    parser.add_argument('--output', '-o', metavar='FILE', type=str, nargs='?', required=False,
+                        help='where the output file(s) should be written. In the --singlebin case, '
+                             'it names a single path-and-filename. '
+                             'Otherwise, it names a base directory where all code objects found will be written')
+    parser.add_argument('--find_filetable', '-f', action="store_true", required=False, help="Find offsets in the file "
+                                                                                            "where the file table may be "
+                                                                                            "located")
+    parser.add_argument('--extract_only', '-e', metavar='name', type=str, nargs='*', required=False,
+                        help='Extract only the binary objects that match the names given as arguments (multiple '
+                             'arguments can be given)')
+    parser.add_argument('input_file', metavar='FILE', type=str, nargs=1, help="a file path to a CSME binary")
+    cli_options = parser.parse_args()
+    print()
+    print("Parsed command-line options:")
+    cli_options.input_file = cli_options.input_file[0]
+    print("Compressed data from file: " + cli_options.input_file)
+    # first check the utility 'command' flags, like "find_filetable"
+    if cli_options.find_filetable:
+        main_run_find_filetable(cli_options.input_file)
+        exit(0)
+
+    print("Huffman Code Table input file: " + cli_options.huffmantable)
+    if cli_options.lut:
+        print("(L)ook (U)p (T)able input file: " + cli_options.lut)
+
+    # read the Huffman table; this is common and global for both types of compressed files that can be provided as input
+    print()
+    read_ascii_huffman_table_from_file(cli_options.huffmantable)
+    print("{0} entries in Huffman table".format(len(huffman_table)))
+
+    if cli_options.singlebin:
+        # the input file is a single, Huffman compressed binary, with a separate LUT file. This is usually the result of
+        #   the intermediate output of a CSME build, before the various modules are packaged into a single, "flashable"
+        #   CSME binary. For example, a single binary that would fit this case is the 'kernel' module,
+        #   or the 'amt' module
+        # form the outputfile name as a (very easily recognizable) variant of the input file name,
+        #   if it wasn't specified
+        if not cli_options.output:
+            output_fqpn = cli_options.input_file + ".decoded"
+            print("(automatically setting output file as: " + output_fqpn + ")")
+        else:
+            output_fqpn = cli_options.output
+
+        print("Output (decoded data) to file: " + output_fqpn)
+
+        if not cli_options.lut:
+            # guess the lutfile name as the input_file name + ".lut", if it wasn't specified
+            cli_options.lut = cli_options.input_file + ".lut"
+            print("(automatically setting the LUT input file as: " + cli_options.lut + ")")
+
+        # finally, call the function to use all these vars that were setup and read the right files
+        main_run_for_individual_compressed_file_input(output_fqpn, cli_options.input_file, cli_options.lut)
+    else:
+        # the input is a packaged file, with multiple binary partitions. i.e. it's a "flashable" package, rather than
+        #  individual binaries
+
+        if cli_options.extract_only:
+            print(">Exclusive-Extract Mode< : extracting only binary objects with the following names: {0}"
+                  .format(", ".join(cli_options.extract_only)))
+        # output specification is now a base directory...defaults to the directory where the input file resides
+        if not cli_options.output:
+            output_fqpn = os.path.dirname(cli_options.input_file) + os.path.sep + "_decoded_output"
+        else:
+            # see if the cli options specify a relative directory
+            if os.path.isabs(cli_options.output):
+                # it's absolute, just use it as-is
+                output_fqpn = cli_options.output
+            else:
+                # relative; prepend the current working dir
+                output_fqpn = os.getcwd() + os.path.sep + cli_options.output
+
+        # create the directory if it doesn't exist
+        os.makedirs(output_fqpn, exist_ok=True)
+        if not os.path.exists(output_fqpn):
+            print("Error: could not create directory {0} for output. Exiting".format(output_fqpn))
+            exit(-1)
+        print(output_fqpn)
+
+        # finally, call the function to use all these vars that were setup and read the right files
+        main_run_for_packaged_compressed_file_input(output_fqpn, cli_options.input_file, cli_options.extract_only)
